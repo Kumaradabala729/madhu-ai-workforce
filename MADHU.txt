@@ -1,0 +1,59 @@
+MADHU
+-----------------
+DAY-1 
+'''''''
+What does MADHU do?
+
+A business creates an AI employee, gives it a specific job, knowledge, language and personality, and MADHU allows that AI employee to perform repetitive business tasks.
+
+MAYA :Maya can:
+
+Call new leads
+Speak Telugu/English
+Answer business questions
+Understand customer requirements
+Qualify leads
+Schedule appointments
+Follow up
+Update CRM
+Send WhatsApp messages
+Transfer important calls to humans
+
+
+V1 → Education
+
+Target:
+
+Coaching institutes
+Training institutes
+Colleges
+EdTech companies
+Skill-development centers
+
+Later MADHU can expand to:
+
+Real Estate → Insurance → Healthcare → Travel → Automotive → Financial Services
+
+First AI Employee: MAYA
+
+Example conversation
+
+Customer:
+
+"నేను Data Analytics course గురించి తెలుసుకోవాలి."
+
+Maya:
+
+"తప్పకుండా. మీరు beginner level నుంచి start చేయాలనుకుంటున్నారా, లేక already experience ఉందా?"
+
+Customer:
+
+"నేను beginner."
+
+Maya understands:
+
+Intent: Course enquiry
+Interest: Data Analytics
+Experience: Beginner
+Lead priority: High
+Next action: Schedule counselling

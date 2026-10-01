@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.venv/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Next.js
+.next/
+out/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Testing
+coverage/
+
+# Build
+dist/
+build/
+
+# Temporary
+tmp/
+temp/
