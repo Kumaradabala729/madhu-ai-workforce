@@ -21,3 +21,12 @@ def health():
     return {
         "status": "healthy"
     }
+
+
+@app.get("/api/test")
+def test_connection():
+    return {
+        "message": "Frontend connected to MADHU backend successfully!",
+        "backend": "FastAPI",
+        "status": "connected",
+    }
