@@ -4,7 +4,12 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.security import hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    get_current_user_id,
+    hash_password,
+    verify_password,
+)
 from app.db.session import get_db
 from app.repositories.user_repository import create_user, get_user_by_email
 from app.schemas.auth import LoginRequest, RegisterRequest
@@ -76,8 +81,14 @@ def login(
             detail="Invalid email or password",
         )
 
+    access_token = create_access_token(
+        user_id=str(user.id),
+    )
+
     return {
         "message": "Login successful",
+        "access_token": access_token,
+        "token_type": "bearer",
         "user": {
             "id": str(user.id),
             "name": user.name,
@@ -85,4 +96,13 @@ def login(
             "role": user.role,
             "organization_id": str(user.organization_id),
         },
+    }
+
+@router.get("/me")
+def get_me(
+    user_id: str = Depends(get_current_user_id),
+):
+    return {
+        "message": "You are authenticated",
+        "user_id": user_id,
     }
