@@ -105,3 +105,14 @@ def require_admin(
         )
 
     return current_user
+def require_same_organization(
+    organization_id: str,
+    current_user=Depends(get_current_user),
+):
+    if str(current_user.organization_id) != organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied for this organization",
+        )
+
+    return current_user
