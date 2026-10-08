@@ -15,3 +15,16 @@ def get_organization_by_id(
     )
 
     return db.execute(statement).scalar_one_or_none()
+def update_organization(
+    db: Session,
+    organization: Organization,
+    name: str,
+    slug: str,
+) -> Organization:
+    organization.name = name
+    organization.slug = slug
+
+    db.commit()
+    db.refresh(organization)
+
+    return organization
