@@ -1,5 +1,14 @@
 
 import uuid
+import hashlib
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from app.models.invitation import OrganizationInvitation
+from app.models.user import User
+from app.schemas.auth import InvitationAcceptRequest
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -106,3 +115,104 @@ def get_me(
         "message": "You are authenticated",
         "user_id": user_id,
     }
+
+
+@router.post("/accept-invitation")
+def accept_invitation(
+    request: InvitationAcceptRequest,
+    db: Session = Depends(get_db),
+):
+    # Hash the supplied token; the raw token is never stored.
+    token_hash = hashlib.sha256(
+        request.token.encode("utf-8")
+    ).hexdigest()
+
+    try:
+        # Lock the invitation row to prevent simultaneous acceptance.
+        statement = (
+            select(OrganizationInvitation)
+            .where(OrganizationInvitation.token_hash == token_hash)
+            .with_for_update()
+        )
+
+        invitation = db.execute(
+            statement
+        ).scalar_one_or_none()
+
+        if invitation is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid invitation",
+            )
+
+        if invitation.accepted_at is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Invitation has already been accepted",
+            )
+
+        if invitation.revoked_at is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Invitation has been revoked",
+            )
+
+        if invitation.expires_at <= datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=400,
+                detail="Invitation has expired",
+            )
+
+        # Prevent registration if the email already exists.
+        existing_user = db.execute(
+            select(User).where(
+                User.email == invitation.email
+            )
+        ).scalar_one_or_none()
+
+        if existing_user is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="An account with this email already exists",
+            )
+
+        # Use the invitation's organization, email, and role.
+        user = User(
+            organization_id=invitation.organization_id,
+            name=request.name.strip(),
+            email=invitation.email,
+            password_hash=hash_password(request.password),
+            role=invitation.role,
+        )
+
+        invitation.accepted_at = datetime.now(timezone.utc)
+
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        return {
+            "message": "Invitation accepted and account created successfully",
+            "user": {
+                "id": str(user.id),
+                "name": user.name,
+                "email": user.email,
+                "role": user.role,
+                "organization_id": str(user.organization_id),
+            },
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Account already exists or invitation could not be accepted",
+        )
+
+    except Exception:
+        db.rollback()
+        raise

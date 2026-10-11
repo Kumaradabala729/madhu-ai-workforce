@@ -1,6 +1,7 @@
 
 from fastapi import FastAPI
 from sqlalchemy import text
+from app.api.invitations import router as invitations_router
 
 from app.api.auth import router as auth_router
 from app.api.users import router as users_router
@@ -20,6 +21,7 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(organizations_router)
 app.include_router(members_router)
+app.include_router(invitations_router)
 
 
 @app.get("/")
