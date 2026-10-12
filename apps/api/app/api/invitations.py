@@ -1,15 +1,19 @@
+
 import uuid
 from datetime import datetime, timezone
+from math import ceil
+from typing import Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.security import require_admin
 from app.db.session import get_db
 from app.models.invitation import OrganizationInvitation
+from app.models.user import User
 from app.schemas.invitation import (
     InvitationCreateRequest,
     InvitationCreateResponse,
@@ -84,8 +88,6 @@ def create_organization_invitation(
             detail="An active invitation already exists for this email",
         )
 
-    from app.models.user import User
-
     user_statement = select(User).where(
         User.organization_id == organization_uuid,
         User.email == email,
@@ -131,6 +133,9 @@ def create_organization_invitation(
 @router.get("/{organization_id}/invitations")
 def list_organization_invitations(
     organization_id: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    invitation_status: Optional[str] = Query(default=None),
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -145,47 +150,106 @@ def list_organization_invitations(
             detail="Access denied for this organization",
         )
 
-    statement = (
-        select(OrganizationInvitation)
-        .where(
-            OrganizationInvitation.organization_id == organization_uuid
-        )
-        .order_by(OrganizationInvitation.created_at.desc())
+    allowed_statuses = {
+        "pending",
+        "accepted",
+        "revoked",
+        "expired",
+    }
+
+    if invitation_status is not None:
+        invitation_status = invitation_status.lower()
+
+        if invitation_status not in allowed_statuses:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Invalid invitation status. Use pending, accepted, "
+                    "revoked, or expired."
+                ),
+            )
+
+    now = datetime.now(timezone.utc)
+
+    statement = select(OrganizationInvitation).where(
+        OrganizationInvitation.organization_id == organization_uuid
     )
 
-    invitations = db.execute(statement).scalars().all()
-
-    results = []
-
-    for invitation in invitations:
-        results.append(
-            {
-                "id": str(invitation.id),
-                "email": invitation.email,
-                "role": invitation.role,
-                "status": get_invitation_status(invitation),
-                "created_at": invitation.created_at.isoformat(),
-                "expires_at": invitation.expires_at.isoformat(),
-                "accepted_at": (
-                    invitation.accepted_at.isoformat()
-                    if invitation.accepted_at
-                    else None
-                ),
-                "revoked_at": (
-                    invitation.revoked_at.isoformat()
-                    if invitation.revoked_at
-                    else None
-                ),
-            }
+    if invitation_status == "accepted":
+        statement = statement.where(
+            OrganizationInvitation.accepted_at.is_not(None)
         )
 
+    elif invitation_status == "revoked":
+        statement = statement.where(
+            OrganizationInvitation.accepted_at.is_(None),
+            OrganizationInvitation.revoked_at.is_not(None),
+        )
+
+    elif invitation_status == "expired":
+        statement = statement.where(
+            OrganizationInvitation.accepted_at.is_(None),
+            OrganizationInvitation.revoked_at.is_(None),
+            OrganizationInvitation.expires_at <= now,
+        )
+
+    elif invitation_status == "pending":
+        statement = statement.where(
+            OrganizationInvitation.accepted_at.is_(None),
+            OrganizationInvitation.revoked_at.is_(None),
+            OrganizationInvitation.expires_at > now,
+        )
+
+    count_statement = select(func.count()).select_from(
+        statement.order_by(None).subquery()
+    )
+
+    total = db.execute(count_statement).scalar_one()
+
+    invitations = db.execute(
+        statement
+        .order_by(
+            OrganizationInvitation.created_at.desc(),
+            OrganizationInvitation.id.desc(),
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).scalars().all()
+
+    results = [
+        {
+            "id": str(invitation.id),
+            "email": invitation.email,
+            "role": invitation.role,
+            "status": get_invitation_status(invitation),
+            "created_at": invitation.created_at.isoformat(),
+            "expires_at": invitation.expires_at.isoformat(),
+            "accepted_at": (
+                invitation.accepted_at.isoformat()
+                if invitation.accepted_at
+                else None
+            ),
+            "revoked_at": (
+                invitation.revoked_at.isoformat()
+                if invitation.revoked_at
+                else None
+            ),
+        }
+        for invitation in invitations
+    ]
+
     return {
-        "total": len(results),
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": ceil(total / page_size) if total else 0,
         "invitations": results,
     }
 
 
-@router.post("/{organization_id}/invitations/{invitation_id}/revoke")
+@router.post(
+    "/{organization_id}/invitations/{invitation_id}/revoke"
+)
 def revoke_organization_invitation(
     organization_id: str,
     invitation_id: str,
@@ -196,6 +260,7 @@ def revoke_organization_invitation(
         organization_id,
         "Invalid organization ID",
     )
+
     invitation_uuid = parse_uuid(
         invitation_id,
         "Invalid invitation ID",
