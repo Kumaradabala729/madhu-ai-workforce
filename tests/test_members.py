@@ -62,24 +62,45 @@ def teardown():
     app.dependency_overrides.clear()
 
 
+
 def test_list_members_returns_members_and_total():
     mock_db = MagicMock()
-    mock_db.execute.return_value.scalars.return_value.all.return_value = [
-        make_member()
+
+    # First query: total matching members.
+    # Second query: members for the requested page.
+    mock_db.execute.side_effect = [
+        MagicMock(scalar_one=lambda: 1, scalar_one_or_none=lambda: 1),
+        MagicMock(
+            scalars=MagicMock(
+                return_value=MagicMock(
+                    all=MagicMock(return_value=[make_member()])
+                )
+            )
+        ),
     ]
+
     setup_admin(mock_db)
 
     try:
-        response = client.get(f"/api/organizations/{ORG_ID}/members")
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/members"
+        )
 
         assert response.status_code == 200
+
         data = response.json()
         assert data["total"] == 1
+        assert data["page"] == 1
+        assert data["page_size"] == 10
+        assert data["total_pages"] == 1
+        assert len(data["members"]) == 1
         assert data["members"][0]["name"] == "Test Member"
         assert data["members"][0]["email"] == "member@example.com"
         assert data["members"][0]["role"] == "member"
+
     finally:
         teardown()
+
 
 
 def test_list_members_rejects_invalid_organization_id():
@@ -222,5 +243,56 @@ def test_admin_cannot_remove_own_admin_role():
             "You cannot remove your own admin role"
         )
         mock_db.commit.assert_not_called()
+    finally:
+        teardown()
+
+def test_list_members_returns_pagination_metadata():
+    mock_db = MagicMock()
+    mock_db.execute.side_effect = [
+        MagicMock(scalar_one=lambda: 25),
+        MagicMock(
+            scalars=MagicMock(
+                return_value=MagicMock(all=MagicMock(return_value=[]))
+            )
+        ),
+    ]
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/members?page=2&page_size=10"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 25
+        assert data["page"] == 2
+        assert data["page_size"] == 10
+        assert data["total_pages"] == 3
+        assert data["members"] == []
+    finally:
+        teardown()
+
+
+def test_list_members_rejects_invalid_page():
+    setup_admin()
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/members?page=0"
+        )
+        assert response.status_code == 422
+    finally:
+        teardown()
+
+
+def test_list_members_rejects_page_size_over_100():
+    setup_admin()
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/members?page_size=101"
+        )
+        assert response.status_code == 422
     finally:
         teardown()
