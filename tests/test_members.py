@@ -371,3 +371,44 @@ def test_list_members_rejects_search_longer_than_200_characters():
         assert response.status_code == 422
     finally:
         teardown()
+
+def test_update_member_role_rolls_back_when_commit_fails():
+    target = make_member()
+    mock_db = MagicMock()
+    mock_db.execute.return_value.scalar_one_or_none.return_value = target
+    mock_db.commit.side_effect = Exception("Database commit failed")
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.patch(
+            f"/api/organizations/{ORG_ID}/members/{TARGET_MEMBER_ID}/role",
+            json={"role": "admin"},
+        )
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to update member role"
+        mock_db.rollback.assert_called_once()
+    finally:
+        teardown()
+
+
+def test_update_member_role_rolls_back_when_refresh_fails():
+    target = make_member()
+    mock_db = MagicMock()
+    mock_db.execute.return_value.scalar_one_or_none.return_value = target
+    mock_db.refresh.side_effect = Exception("Database refresh failed")
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.patch(
+            f"/api/organizations/{ORG_ID}/members/{TARGET_MEMBER_ID}/role",
+            json={"role": "admin"},
+        )
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to update member role"
+        mock_db.rollback.assert_called_once()
+    finally:
+        teardown()

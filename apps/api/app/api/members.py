@@ -17,7 +17,6 @@ router = APIRouter(
 )
 
 
-
 @router.get("/{organization_id}/members")
 def list_organization_members(
     organization_id: str,
@@ -27,9 +26,6 @@ def list_organization_members(
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    from fastapi import Query
-    from sqlalchemy import func, or_
-
     # Validate the organization ID.
     try:
         organization_uuid = uuid.UUID(organization_id)
@@ -46,35 +42,26 @@ def list_organization_members(
             detail="Access denied for this organization",
         )
 
-    # Validate pagination parameters.
-    if page < 1:
-        raise HTTPException(
-            status_code=422,
-            detail="Page must be at least 1",
-        )
-
-    if page_size < 1 or page_size > 100:
-        raise HTTPException(
-            status_code=422,
-            detail="Page size must be between 1 and 100",
-        )
-
     # Scope every query to the current admin's organization.
     statement = select(User).where(
         User.organization_id == current_user.organization_id
     )
 
-    count_statement = select(func.count()).select_from(User).where(
-        User.organization_id == current_user.organization_id
+    count_statement = (
+        select(func.count())
+        .select_from(User)
+        .where(User.organization_id == current_user.organization_id)
     )
 
     # Search by name or email, ignoring surrounding whitespace.
     search_term = search.strip()
+
     if search_term:
         search_filter = or_(
             User.name.ilike(f"%{search_term}%"),
             User.email.ilike(f"%{search_term}%"),
         )
+
         statement = statement.where(search_filter)
         count_statement = count_statement.where(search_filter)
 
@@ -106,7 +93,6 @@ def list_organization_members(
             for member in members
         ],
     }
-
 
 
 @router.patch("/{organization_id}/members/{member_id}/role")
@@ -157,10 +143,7 @@ def update_member_role(
         )
 
     # Prevent an admin from removing their own admin role.
-    if (
-        member.id == current_user.id
-        and request.role != "admin"
-    ):
+    if member.id == current_user.id and request.role != "admin":
         raise HTTPException(
             status_code=400,
             detail="You cannot remove your own admin role",
@@ -188,4 +171,3 @@ def update_member_role(
             "role": member.role,
         },
     }
-
