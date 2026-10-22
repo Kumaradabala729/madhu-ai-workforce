@@ -1,7 +1,8 @@
 
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.security import require_admin
@@ -20,9 +21,9 @@ router = APIRouter(
 @router.get("/{organization_id}/members")
 def list_organization_members(
     organization_id: str,
-    page: int = 1,
-    page_size: int = 10,
-    search: str = "",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+    search: str = Query(default="", max_length=200),
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):

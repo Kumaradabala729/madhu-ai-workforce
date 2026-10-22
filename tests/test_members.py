@@ -296,3 +296,78 @@ def test_list_members_rejects_page_size_over_100():
         assert response.status_code == 422
     finally:
         teardown()
+
+def test_list_members_search_returns_matching_members():
+    matching_member = make_member(
+        name="Kumar Adabala",
+        email="kumar@example.com",
+    )
+
+    mock_db = MagicMock()
+    mock_db.execute.side_effect = [
+        MagicMock(scalar_one=lambda: 1),
+        MagicMock(
+            scalars=MagicMock(
+                return_value=MagicMock(
+                    all=MagicMock(return_value=[matching_member])
+                )
+            )
+        ),
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/members?search=Kumar"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert len(data["members"]) == 1
+        assert data["members"][0]["name"] == "Kumar Adabala"
+    finally:
+        teardown()
+
+
+def test_list_members_search_returns_empty_when_no_matches():
+    mock_db = MagicMock()
+    mock_db.execute.side_effect = [
+        MagicMock(scalar_one=lambda: 0),
+        MagicMock(
+            scalars=MagicMock(
+                return_value=MagicMock(
+                    all=MagicMock(return_value=[])
+                )
+            )
+        ),
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/members?search=notfound"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 0
+        assert data["members"] == []
+        assert data["total_pages"] == 0
+    finally:
+        teardown()
+
+def test_list_members_rejects_search_longer_than_200_characters():
+    setup_admin()
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/members",
+            params={"search": "a" * 201},
+        )
+
+        assert response.status_code == 422
+    finally:
+        teardown()
