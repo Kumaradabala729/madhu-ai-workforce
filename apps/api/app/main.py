@@ -9,7 +9,7 @@ from app.db.session import engine
 from app.api.organizations import router as organizations_router
 
 from app.api.members import router as members_router
-
+from app.api.ai_employees import router as ai_employees_router
 
 app = FastAPI(
     title="MADHU API",
@@ -22,6 +22,7 @@ app.include_router(users_router)
 app.include_router(organizations_router)
 app.include_router(members_router)
 app.include_router(invitations_router)
+app.include_router(ai_employees_router)
 
 
 @app.get("/")
