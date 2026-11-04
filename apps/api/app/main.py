@@ -7,6 +7,7 @@ from app.api.auth import router as auth_router
 from app.api.users import router as users_router
 from app.db.session import engine
 from app.api.organizations import router as organizations_router
+from app.api.ai_employee_executions import router as ai_employee_executions_router
 
 from app.api.members import router as members_router
 from app.api.ai_employees import router as ai_employees_router
@@ -23,6 +24,7 @@ app.include_router(organizations_router)
 app.include_router(members_router)
 app.include_router(invitations_router)
 app.include_router(ai_employees_router)
+app.include_router(ai_employee_executions_router)
 
 
 @app.get("/")
