@@ -59,6 +59,9 @@ def serialize_employee(employee: AIEmployee) -> dict:
         "description": employee.description,
         "language": employee.language,
         "status": employee.status,
+        "personality": employee.personality,
+        "system_prompt": employee.system_prompt,
+        "responsibilities": employee.responsibilities,
     }
 
 
@@ -83,7 +86,64 @@ def get_employee(
 
     return employee
 
+def validate_activation_requirements(employee: AIEmployee):
+    """Ensure an AI employee has all required configuration before activation."""
+    required_fields = {
+        "name": employee.name,
+        "role": employee.role,
+        "language": employee.language,
+        "personality": employee.personality,
+        "system_prompt": employee.system_prompt,
+        "responsibilities": employee.responsibilities,
+    }
 
+    missing_fields = [
+        field
+        for field, value in required_fields.items()
+        if value is None or not value.strip()
+    ]
+
+    if missing_fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "message": "Complete the employee configuration before activation",
+                "missing_fields": missing_fields,
+            },
+        )
+
+
+def change_employee_status(
+    db: Session,
+    employee: AIEmployee,
+    expected_status: str,
+    new_status: str,
+):
+    """Validate and update an AI employee's lifecycle status."""
+    if employee.status != expected_status:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Cannot change status from '{employee.status}' "
+                f"to '{new_status}'"
+            ),
+        )
+
+    if new_status == "active":
+        validate_activation_requirements(employee)
+
+    try:
+        employee.status = new_status
+        db.commit()
+        db.refresh(employee)
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to change AI employee status",
+        )
+
+    return {"employee": serialize_employee(employee)}
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_ai_employee(
     organization_id: str,
@@ -102,25 +162,43 @@ def create_ai_employee(
 
     if not name:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Name cannot be empty",
         )
 
     if not role:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Role cannot be empty",
         )
 
     if not language:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Language cannot be empty",
         )
 
     description = (
         request.description.strip()
         if request.description is not None
+        else None
+    )
+
+    personality = (
+        request.personality.strip()
+        if request.personality is not None
+        else None
+    )
+
+    system_prompt = (
+        request.system_prompt.strip()
+        if request.system_prompt is not None
+        else None
+    )
+
+    responsibilities = (
+        request.responsibilities.strip()
+        if request.responsibilities is not None
         else None
     )
 
@@ -131,6 +209,9 @@ def create_ai_employee(
         description=description,
         language=language,
         status="draft",
+        personality=personality,
+        system_prompt=system_prompt,
+        responsibilities=responsibilities,
     )
 
     try:
@@ -194,6 +275,71 @@ def retrieve_ai_employee(
 
     return {"employee": serialize_employee(employee)}
 
+@router.post("/{employee_id}/activate")
+def activate_ai_employee(
+    organization_id: str,
+    employee_id: str,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Activate a fully configured draft AI employee."""
+    organization_uuid = validate_organization_id(
+        organization_id, current_user
+    )
+    employee_uuid = validate_employee_id(employee_id)
+
+    employee = get_employee(
+        db, organization_uuid, employee_uuid
+    )
+
+    return change_employee_status(
+        db, employee, "draft", "active"
+    )
+
+
+@router.post("/{employee_id}/pause")
+def pause_ai_employee(
+    organization_id: str,
+    employee_id: str,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Pause an active AI employee."""
+    organization_uuid = validate_organization_id(
+        organization_id, current_user
+    )
+    employee_uuid = validate_employee_id(employee_id)
+
+    employee = get_employee(
+        db, organization_uuid, employee_uuid
+    )
+
+    return change_employee_status(
+        db, employee, "active", "paused"
+    )
+
+
+@router.post("/{employee_id}/reactivate")
+def reactivate_ai_employee(
+    organization_id: str,
+    employee_id: str,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Reactivate a paused AI employee."""
+    organization_uuid = validate_organization_id(
+        organization_id, current_user
+    )
+    employee_uuid = validate_employee_id(employee_id)
+
+    employee = get_employee(
+        db, organization_uuid, employee_uuid
+    )
+
+    return change_employee_status(
+        db, employee, "paused", "active"
+    )
+
 
 @router.patch("/{employee_id}")
 def update_ai_employee(
@@ -213,23 +359,16 @@ def update_ai_employee(
         db, organization_uuid, employee_uuid
     )
 
-    # Pydantic v2: update only explicitly provided fields.
     updates = request.model_dump(exclude_unset=True)
 
     if not updates:
         return {"employee": serialize_employee(employee)}
 
     if "status" in updates:
-        allowed_statuses = {"draft", "active", "paused"}
-
-        if updates["status"] not in allowed_statuses:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=(
-                    "Invalid status. Allowed values: "
-                    "draft, active, paused"
-                ),
-            )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Use lifecycle endpoints to change employee status",
+        )
 
     for field in ("name", "role", "language"):
         if field in updates:
@@ -237,15 +376,22 @@ def update_ai_employee(
 
             if value is None or not value.strip():
                 raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"{field.capitalize()} cannot be empty",
                 )
 
             updates[field] = value.strip()
 
-    if "description" in updates:
-        if updates["description"] is not None:
-            updates["description"] = updates["description"].strip()
+    text_fields = (
+        "description",
+        "personality",
+        "system_prompt",
+        "responsibilities",
+    )
+
+    for field in text_fields:
+        if field in updates and updates[field] is not None:
+            updates[field] = updates[field].strip()
 
     try:
         for field, value in updates.items():

@@ -53,3 +53,20 @@ class AIEmployee(Base):
         default="draft",
         server_default="draft",
     )
+
+    # AI Employee configuration
+
+    personality: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    system_prompt: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    responsibilities: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
