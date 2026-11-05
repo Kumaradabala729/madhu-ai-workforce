@@ -62,3 +62,32 @@ def process_execution(
             raise
 
         return execution
+MAX_RETRY_ATTEMPTS = 3
+
+
+def retry_execution(
+    db: Session,
+    execution: AIEmployeeExecution,
+) -> AIEmployeeExecution:
+    """Reset a failed execution for another processing attempt."""
+
+    if execution.status != "failed":
+        raise ValueError("Only failed executions can be retried")
+
+    if execution.retry_count >= MAX_RETRY_ATTEMPTS:
+        raise ValueError("Maximum retry attempts reached")
+
+    try:
+        execution.retry_count += 1
+        execution.status = "pending"
+        execution.error_message = None
+        execution.output_data = None
+
+        db.commit()
+        db.refresh(execution)
+
+        return execution
+
+    except Exception:
+        db.rollback()
+        raise

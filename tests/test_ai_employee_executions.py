@@ -7,7 +7,10 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.core.security import require_admin
 from app.db.session import get_db
-from app.services.execution_service import process_execution
+from app.services.execution_service import (
+    process_execution,
+    retry_execution,
+)
 
 
 client = TestClient(app)
@@ -44,6 +47,7 @@ def make_execution():
         input_data={"student": "Rahul"},
         output_data=None,
         error_message=None,
+        retry_count=0,
         created_at=None,
         updated_at=None,
     )
@@ -357,3 +361,48 @@ def test_process_execution_marks_empty_task_as_failed():
     assert result.output_data is None
     assert result.error_message == "Execution task cannot be empty"
     mock_db.rollback.assert_called_once()
+def test_retry_execution_successfully():
+    mock_db = MagicMock()
+    execution = make_execution()
+    execution.status = "failed"
+    execution.retry_count = 0
+    execution.error_message = "Temporary failure"
+    execution.output_data = {"old": "result"}
+
+    result = retry_execution(mock_db, execution)
+
+    assert result.status == "pending"
+    assert result.retry_count == 1
+    assert result.error_message is None
+    assert result.output_data is None
+    mock_db.commit.assert_called_once()
+    mock_db.refresh.assert_called_once()
+
+
+def test_retry_execution_rejects_non_failed_execution():
+    mock_db = MagicMock()
+    execution = make_execution()
+    execution.status = "completed"
+
+    try:
+        retry_execution(mock_db, execution)
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert str(exc) == "Only failed executions can be retried"
+
+    mock_db.commit.assert_not_called()
+
+
+def test_retry_execution_rejects_maximum_retry_attempts():
+    mock_db = MagicMock()
+    execution = make_execution()
+    execution.status = "failed"
+    execution.retry_count = 3
+
+    try:
+        retry_execution(mock_db, execution)
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert str(exc) == "Maximum retry attempts reached"
+
+    mock_db.commit.assert_not_called()

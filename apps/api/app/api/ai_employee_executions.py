@@ -1,18 +1,22 @@
 import uuid
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.services.execution_service import process_execution
-
 from app.core.security import require_admin
+
 from app.db.session import get_db
 from app.models.ai_employee import AIEmployee
 from app.models.ai_employee_execution import AIEmployeeExecution
+
 from app.schemas.ai_employee_execution import (
     AIEmployeeExecutionCreateRequest,
 )
-
+from app.services.execution_service import (
+    process_execution,
+    retry_execution,
+)
 
 router = APIRouter(
     prefix="/api/organizations/{organization_id}/ai-employees/{employee_id}/executions",
@@ -91,6 +95,7 @@ def serialize_execution(execution: AIEmployeeExecution) -> dict:
         "input_data": execution.input_data,
         "output_data": execution.output_data,
         "error_message": execution.error_message,
+        "retry_count": execution.retry_count,
         "created_at": (
             execution.created_at.isoformat()
             if execution.created_at else None
@@ -118,8 +123,6 @@ def get_execution(db, organization_uuid, employee_uuid, execution_uuid):
         )
 
     return execution
-
-
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_execution(
     organization_id: str,
@@ -141,7 +144,7 @@ def create_execution(
 
     if not task:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=422,
             detail="Task cannot be empty",
         )
 
@@ -160,17 +163,17 @@ def create_execution(
     except Exception:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail="Failed to create execution",
         )
 
     return {"execution": serialize_execution(execution)}
 
-
 @router.get("")
 def list_executions(
     organization_id: str,
     employee_id: str,
+    status: Optional[str] = Query(default=None),
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -179,32 +182,31 @@ def list_executions(
     )
     employee_uuid = validate_employee_id(employee_id)
 
-    statement = select(AIEmployee).where(
-        AIEmployee.id == employee_uuid,
-        AIEmployee.organization_id == organization_uuid,
-    )
+    allowed_statuses = {"pending", "running", "completed", "failed"}
 
-    employee = db.execute(statement).scalar_one_or_none()
-
-    if employee is None:
+    if status is not None and status not in allowed_statuses:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="AI employee not found",
+            status_code=422,
+            detail="Invalid execution status",
         )
 
-    statement = (
-        select(AIEmployeeExecution)
-        .where(
-            AIEmployeeExecution.organization_id == organization_uuid,
-            AIEmployeeExecution.ai_employee_id == employee_uuid,
-        )
-        .order_by(
-            AIEmployeeExecution.created_at.desc(),
-            AIEmployeeExecution.id,
-        )
+    employee = get_active_employee(
+        db, organization_uuid, employee_uuid
     )
 
-    executions = db.execute(statement).scalars().all()
+    query = select(AIEmployeeExecution).where(
+        AIEmployeeExecution.organization_id == organization_uuid,
+        AIEmployeeExecution.ai_employee_id == employee.id,
+    )
+
+    if status is not None:
+        query = query.where(AIEmployeeExecution.status == status)
+
+    query = query.order_by(
+        AIEmployeeExecution.created_at.desc()
+    )
+
+    executions = db.execute(query).scalars().all()
 
     return {
         "total": len(executions),
@@ -270,4 +272,36 @@ def process_ai_employee_execution(
 
     return {
         "execution": serialize_execution(processed_execution)
+    }
+@router.post("/{execution_id}/retry")
+def retry_ai_employee_execution(
+    organization_id: str,
+    employee_id: str,
+    execution_id: str,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    organization_uuid = validate_organization_id(
+        organization_id, current_user
+    )
+    employee_uuid = validate_employee_id(employee_id)
+    execution_uuid = validate_execution_id(execution_id)
+
+    execution = get_execution(
+        db,
+        organization_uuid,
+        employee_uuid,
+        execution_uuid,
+    )
+
+    try:
+        retried_execution = retry_execution(db, execution)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+
+    return {
+        "execution": serialize_execution(retried_execution)
     }

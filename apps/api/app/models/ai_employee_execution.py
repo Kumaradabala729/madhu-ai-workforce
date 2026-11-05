@@ -42,6 +42,11 @@ class AIEmployeeExecution(Base):
     input_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     output_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
