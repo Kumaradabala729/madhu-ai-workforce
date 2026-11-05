@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.core.security import require_admin
 from app.db.session import get_db
+from app.services.execution_service import process_execution
 
 
 client = TestClient(app)
@@ -317,3 +318,42 @@ def test_create_execution_rolls_back_on_database_failure():
         mock_db.rollback.assert_called_once()
     finally:
         teardown()
+
+def test_process_execution_successfully():
+    mock_db = MagicMock()
+    execution = make_execution()
+
+    result = process_execution(mock_db, execution)
+
+    assert result.status == "completed"
+    assert result.output_data["result"] == "Task processing completed"
+    assert result.error_message is None
+    assert mock_db.commit.call_count == 2
+    assert mock_db.refresh.call_count == 2
+
+
+def test_process_execution_rejects_non_pending_execution():
+    mock_db = MagicMock()
+    execution = make_execution()
+    execution.status = "completed"
+
+    try:
+        process_execution(mock_db, execution)
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert str(exc) == "Only pending executions can be processed"
+
+    mock_db.commit.assert_not_called()
+
+
+def test_process_execution_marks_empty_task_as_failed():
+    mock_db = MagicMock()
+    execution = make_execution()
+    execution.task = "   "
+
+    result = process_execution(mock_db, execution)
+
+    assert result.status == "failed"
+    assert result.output_data is None
+    assert result.error_message == "Execution task cannot be empty"
+    mock_db.rollback.assert_called_once()

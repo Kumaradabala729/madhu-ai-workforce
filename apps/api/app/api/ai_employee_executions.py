@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from app.services.execution_service import process_execution
 
 from app.core.security import require_admin
 from app.db.session import get_db
@@ -236,3 +237,37 @@ def retrieve_execution(
     )
 
     return {"execution": serialize_execution(execution)}
+
+
+@router.post("/{execution_id}/process")
+def process_ai_employee_execution(
+    organization_id: str,
+    employee_id: str,
+    execution_id: str,
+    current_user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    organization_uuid = validate_organization_id(
+        organization_id, current_user
+    )
+    employee_uuid = validate_employee_id(employee_id)
+    execution_uuid = validate_execution_id(execution_id)
+
+    execution = get_execution(
+        db,
+        organization_uuid,
+        employee_uuid,
+        execution_uuid,
+    )
+
+    try:
+        processed_execution = process_execution(db, execution)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+
+    return {
+        "execution": serialize_execution(processed_execution)
+    }
