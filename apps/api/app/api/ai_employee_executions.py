@@ -2,7 +2,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.core.security import require_admin
 
@@ -174,6 +174,9 @@ def list_executions(
     organization_id: str,
     employee_id: str,
     status: Optional[str] = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    search: Optional[str] = Query(default=None, min_length=1, max_length=200),
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -194,22 +197,36 @@ def list_executions(
         db, organization_uuid, employee_uuid
     )
 
-    query = select(AIEmployeeExecution).where(
+    filters = [
         AIEmployeeExecution.organization_id == organization_uuid,
         AIEmployeeExecution.ai_employee_id == employee.id,
-    )
+    ]
 
     if status is not None:
-        query = query.where(AIEmployeeExecution.status == status)
+        filters.append(AIEmployeeExecution.status == status)
+    if search is not None:
+        filters.append(
+            AIEmployeeExecution.task.ilike(f"%{search.strip()}%")
+        )
+    total = db.execute(
+        select(func.count(AIEmployeeExecution.id)).where(*filters)
+    ).scalar_one()
 
-    query = query.order_by(
-        AIEmployeeExecution.created_at.desc()
+    query = (
+        select(AIEmployeeExecution)
+        .where(*filters)
+        .order_by(AIEmployeeExecution.created_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
     )
 
     executions = db.execute(query).scalars().all()
 
     return {
-        "total": len(executions),
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total + limit - 1) // limit,
         "executions": [
             serialize_execution(execution)
             for execution in executions

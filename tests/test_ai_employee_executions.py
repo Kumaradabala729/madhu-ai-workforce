@@ -231,9 +231,19 @@ def test_list_executions_successfully():
     employee = make_employee()
     execution = make_execution()
 
-    mock_db.execute.return_value.scalar_one_or_none.return_value = employee
-    mock_db.execute.return_value.scalars.return_value.all.return_value = [
-        execution
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = employee
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 1
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [execution]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
     ]
 
     setup_admin(mock_db)
@@ -247,6 +257,9 @@ def test_list_executions_successfully():
         data = response.json()
 
         assert data["total"] == 1
+        assert data["page"] == 1
+        assert data["limit"] == 20
+        assert data["total_pages"] == 1
         assert data["executions"][0]["task"] == (
             "Follow up with a student"
         )
@@ -406,3 +419,100 @@ def test_retry_execution_rejects_maximum_retry_attempts():
         assert str(exc) == "Maximum retry attempts reached"
 
     mock_db.commit.assert_not_called()
+def test_list_executions_supports_pagination():
+    mock_db = MagicMock()
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 12
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [
+        make_execution()
+    ]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={"page": 2, "limit": 5},
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+
+        assert data["total"] == 12
+        assert data["page"] == 2
+        assert data["limit"] == 5
+        assert data["total_pages"] == 3
+        assert len(data["executions"]) == 1
+    finally:
+        teardown()
+def test_list_executions_rejects_invalid_pagination():
+    setup_admin()
+
+    try:
+        url = (
+            f"/api/organizations/{ORG_ID}/ai-employees/"
+            f"{EMPLOYEE_ID}/executions"
+        )
+
+        invalid_params = [
+            {"page": 0},
+            {"limit": 0},
+            {"limit": 101},
+        ]
+
+        for params in invalid_params:
+            response = client.get(url, params=params)
+            assert response.status_code == 422
+    finally:
+        teardown()
+def test_list_executions_supports_task_search():
+    mock_db = MagicMock()
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 1
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [
+        make_execution()
+    ]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={"search": "student"},
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["total"] == 1
+        assert len(data["executions"]) == 1
+        assert data["executions"][0]["task"] == (
+            "Follow up with a student"
+        )
+    finally:
+        teardown()
