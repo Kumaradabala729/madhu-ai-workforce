@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from sqlalchemy import text
 from app.api.invitations import router as invitations_router
-
+from app.api.execution_analytics import router as execution_analytics_router
 from app.api.auth import router as auth_router
 from app.api.users import router as users_router
 from app.db.session import engine
@@ -25,7 +25,7 @@ app.include_router(members_router)
 app.include_router(invitations_router)
 app.include_router(ai_employees_router)
 app.include_router(ai_employee_executions_router)
-
+app.include_router(execution_analytics_router)
 
 @app.get("/")
 def root():
