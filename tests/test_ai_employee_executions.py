@@ -516,3 +516,56 @@ def test_list_executions_supports_task_search():
         )
     finally:
         teardown()
+def test_list_executions_supports_date_range():
+    mock_db = MagicMock()
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 1
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [
+        make_execution()
+    ]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={
+                "start_date": "2026-11-01T00:00:00",
+                "end_date": "2026-11-07T23:59:59",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["total"] == 1
+    finally:
+        teardown()
+def test_list_executions_rejects_invalid_date_range():
+    setup_admin()
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={
+                "start_date": "2026-11-08T00:00:00",
+                "end_date": "2026-11-07T00:00:00",
+            },
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Start date must be before or equal to end date"
+        )
+    finally:
+        teardown()

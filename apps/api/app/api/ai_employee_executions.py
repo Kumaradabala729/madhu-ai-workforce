@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.core.security import require_admin
-
+from datetime import datetime
 from app.db.session import get_db
 from app.models.ai_employee import AIEmployee
 from app.models.ai_employee_execution import AIEmployeeExecution
@@ -177,6 +177,8 @@ def list_executions(
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     search: Optional[str] = Query(default=None, min_length=1, max_length=200),
+    start_date: Optional[datetime] = Query(default=None),
+    end_date: Optional[datetime] = Query(default=None),
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -192,7 +194,15 @@ def list_executions(
             status_code=422,
             detail="Invalid execution status",
         )
-
+    if (
+        start_date is not None
+        and end_date is not None
+        and start_date > end_date
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Start date must be before or equal to end date",
+        )
     employee = get_active_employee(
         db, organization_uuid, employee_uuid
     )
@@ -207,6 +217,15 @@ def list_executions(
     if search is not None:
         filters.append(
             AIEmployeeExecution.task.ilike(f"%{search.strip()}%")
+        )
+    if start_date is not None:
+        filters.append(
+            AIEmployeeExecution.created_at >= start_date
+        )
+
+    if end_date is not None:
+        filters.append(
+            AIEmployeeExecution.created_at <= end_date
         )
     total = db.execute(
         select(func.count(AIEmployeeExecution.id)).where(*filters)
