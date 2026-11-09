@@ -454,6 +454,8 @@ def test_list_executions_supports_pagination():
         assert data["total"] == 12
         assert data["page"] == 2
         assert data["limit"] == 5
+        assert response.json()["has_next"] is True
+        assert response.json()["has_previous"] is True
         assert data["total_pages"] == 3
         assert len(data["executions"]) == 1
     finally:
@@ -647,5 +649,76 @@ def test_list_executions_supports_retried_only_filter():
 
         executed_query = mock_db.execute.call_args_list[2][0][0]
         assert "retry_count" in str(executed_query)
+    finally:
+        teardown()
+def test_list_executions_first_page_pagination_metadata():
+    mock_db = MagicMock()
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 12
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [
+        make_execution()
+    ]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={"page": 1, "limit": 5},
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["has_next"] is True
+        assert data["has_previous"] is False
+    finally:
+        teardown()
+def test_list_executions_last_page_pagination_metadata():
+    mock_db = MagicMock()
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 12
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [
+        make_execution()
+    ]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={"page": 3, "limit": 5},
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["total_pages"] == 3
+        assert data["has_next"] is False
+        assert data["has_previous"] is True
     finally:
         teardown()
