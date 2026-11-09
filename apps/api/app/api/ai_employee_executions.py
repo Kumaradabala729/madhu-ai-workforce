@@ -178,6 +178,7 @@ def list_executions(
     limit: int = Query(default=20, ge=1, le=100),
     search: Optional[str] = Query(default=None, min_length=1, max_length=200),
     sort_order: str = Query(default="newest"),
+    retried_only: bool = Query(default=False),
     start_date: Optional[datetime] = Query(default=None),
     end_date: Optional[datetime] = Query(default=None),
     current_user=Depends(require_admin),
@@ -232,6 +233,10 @@ def list_executions(
     if end_date is not None:
         filters.append(
             AIEmployeeExecution.created_at <= end_date
+        )
+    if retried_only:
+        filters.append(
+            AIEmployeeExecution.retry_count > 0
         )
     total = db.execute(
         select(func.count(AIEmployeeExecution.id)).where(*filters)
