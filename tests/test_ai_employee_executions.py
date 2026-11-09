@@ -569,3 +569,48 @@ def test_list_executions_rejects_invalid_date_range():
         )
     finally:
         teardown()
+def test_list_executions_supports_oldest_sorting():
+    mock_db = MagicMock()
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 1
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [
+        make_execution()
+    ]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={"sort_order": "oldest"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["total"] == 1
+    finally:
+        teardown()
+def test_list_executions_rejects_invalid_sort_order():
+    setup_admin()
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={"sort_order": "random"},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Invalid sort order"
+    finally:
+        teardown()

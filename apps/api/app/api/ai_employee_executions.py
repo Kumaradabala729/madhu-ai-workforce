@@ -177,6 +177,7 @@ def list_executions(
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     search: Optional[str] = Query(default=None, min_length=1, max_length=200),
+    sort_order: str = Query(default="newest"),
     start_date: Optional[datetime] = Query(default=None),
     end_date: Optional[datetime] = Query(default=None),
     current_user=Depends(require_admin),
@@ -194,6 +195,11 @@ def list_executions(
             status_code=422,
             detail="Invalid execution status",
         )
+    if sort_order not in {"newest", "oldest"}:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid sort order",
+    )
     if (
         start_date is not None
         and end_date is not None
@@ -234,7 +240,11 @@ def list_executions(
     query = (
         select(AIEmployeeExecution)
         .where(*filters)
-        .order_by(AIEmployeeExecution.created_at.desc())
+        .order_by(
+            AIEmployeeExecution.created_at.asc()
+            if sort_order == "oldest"
+            else AIEmployeeExecution.created_at.desc()
+        )
         .offset((page - 1) * limit)
         .limit(limit)
     )
