@@ -753,6 +753,8 @@ def test_list_executions_supports_combined_filters():
                 "retried_only": True,
                 "page": 1,
                 "limit": 5,
+                "start_date": "2026-01-01T00:00:00",
+                "end_date": "2026-12-31T23:59:59",
             },
         )
 
@@ -770,6 +772,6 @@ def test_list_executions_supports_combined_filters():
         assert "status" in query_text
         assert "retry_count" in query_text
         assert "LIKE" in query_text.upper()
-
+        assert "created_at" in query_text
     finally:
         teardown()
