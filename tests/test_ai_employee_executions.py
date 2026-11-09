@@ -722,3 +722,54 @@ def test_list_executions_last_page_pagination_metadata():
         assert data["has_previous"] is True
     finally:
         teardown()
+def test_list_executions_supports_combined_filters():
+    mock_db = MagicMock()
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 1
+
+    execution = make_execution()
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [execution]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={
+                "status": "completed",
+                "search": "admission",
+                "sort_order": "newest",
+                "retried_only": True,
+                "page": 1,
+                "limit": 5,
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert len(data["executions"]) == 1
+        assert data["page"] == 1
+        assert data["has_next"] is False
+        assert data["has_previous"] is False
+
+        executed_query = mock_db.execute.call_args_list[2].args[0]
+        query_text = str(executed_query)
+
+        assert "status" in query_text
+        assert "retry_count" in query_text
+        assert "LIKE" in query_text.upper()
+
+    finally:
+        teardown()
