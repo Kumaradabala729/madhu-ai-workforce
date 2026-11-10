@@ -248,7 +248,10 @@ def list_executions(
         .order_by(
             AIEmployeeExecution.created_at.asc()
             if sort_order == "oldest"
-            else AIEmployeeExecution.created_at.desc()
+            else AIEmployeeExecution.created_at.desc(),
+            AIEmployeeExecution.id.asc()
+            if sort_order == "oldest"
+            else AIEmployeeExecution.id.desc(),
         )
         .offset((page - 1) * limit)
         .limit(limit)
