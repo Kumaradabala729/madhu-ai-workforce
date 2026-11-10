@@ -386,6 +386,25 @@ def test_process_execution_marks_empty_task_as_failed():
     assert result.output_data is None
     assert result.error_message == "Execution task cannot be empty"
     mock_db.rollback.assert_called_once()
+
+def test_process_execution_handles_completion_database_failure():
+    mock_db = MagicMock()
+    execution = make_execution()
+
+    mock_db.commit.side_effect = [
+        None,
+        Exception("Completion save failed"),
+        None,
+    ]
+
+    result = process_execution(mock_db, execution)
+
+    assert result.status == "failed"
+    assert result.output_data is None
+    assert result.error_message == "Completion save failed"
+    assert mock_db.rollback.call_count == 1
+    assert mock_db.commit.call_count == 3
+
 def test_retry_execution_successfully():
     mock_db = MagicMock()
     execution = make_execution()
