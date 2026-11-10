@@ -225,7 +225,19 @@ def test_admin_cannot_create_execution_for_another_organization():
     finally:
         teardown()
 
+def test_admin_cannot_retrieve_execution_from_another_organization():
+    mock_db = MagicMock()
+    setup_admin(mock_db)
 
+    try:
+        response = client.get(
+            f"/api/organizations/{OTHER_ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions/{EXECUTION_ID}"
+        )
+
+        assert response.status_code == 403
+        mock_db.execute.assert_not_called()
+    finally:
+        teardown()
 def test_list_executions_successfully():
     mock_db = MagicMock()
     employee = make_employee()
