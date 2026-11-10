@@ -431,6 +431,24 @@ def test_retry_execution_rejects_maximum_retry_attempts():
         assert str(exc) == "Maximum retry attempts reached"
 
     mock_db.commit.assert_not_called()
+
+
+def test_retry_execution_rolls_back_on_database_failure():
+    mock_db = MagicMock()
+    execution = make_execution()
+    execution.status = "failed"
+    execution.retry_count = 0
+
+    mock_db.commit.side_effect = Exception("Database failure")
+
+    try:
+        retry_execution(mock_db, execution)
+        assert False, "Expected database exception"
+    except Exception as exc:
+        assert str(exc) == "Database failure"
+
+    mock_db.rollback.assert_called_once()
+
 def test_list_executions_supports_pagination():
     mock_db = MagicMock()
 
