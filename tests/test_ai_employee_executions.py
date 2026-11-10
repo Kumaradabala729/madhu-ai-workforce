@@ -266,7 +266,6 @@ def test_list_executions_successfully():
     finally:
         teardown()
 
-
 def test_retrieve_execution_successfully():
     mock_db = MagicMock()
     execution = make_execution()
@@ -280,10 +279,23 @@ def test_retrieve_execution_successfully():
         )
 
         assert response.status_code == 200
-        assert response.json()["execution"]["status"] == "pending"
+
+        data = response.json()["execution"]
+
+        assert data["id"] == EXECUTION_ID
+        assert data["organization_id"] == ORG_ID
+        assert data["ai_employee_id"] == EMPLOYEE_ID
+        assert data["task"] == "Follow up with a student"
+        assert data["status"] == "pending"
+        assert data["input_data"] == {"student": "Rahul"}
+        assert data["output_data"] is None
+        assert data["error_message"] is None
+        assert data["retry_count"] == 0
+        assert data["created_at"] is None
+        assert data["updated_at"] is None
+
     finally:
         teardown()
-
 
 def test_retrieve_execution_rejects_invalid_execution_id():
     setup_admin()
