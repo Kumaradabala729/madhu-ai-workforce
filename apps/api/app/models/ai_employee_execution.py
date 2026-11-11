@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func, text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,7 +11,15 @@ from app.db.base import Base
 
 class AIEmployeeExecution(Base):
     __tablename__ = "ai_employee_executions"
-
+    __table_args__ = (
+    Index(
+        "ix_execution_org_employee_created_id",
+        "organization_id",
+        "ai_employee_id",
+        "created_at",
+        "id",
+    ),
+)
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True,
         default=uuid.uuid4,
