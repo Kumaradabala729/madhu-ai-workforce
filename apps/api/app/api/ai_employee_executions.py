@@ -2,7 +2,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 from app.core.security import require_admin
 from datetime import datetime
@@ -181,6 +181,8 @@ def list_executions(
     retried_only: bool = Query(default=False),
     start_date: Optional[datetime] = Query(default=None),
     end_date: Optional[datetime] = Query(default=None),
+    cursor_created_at: Optional[datetime] = Query(default=None),
+    cursor_id: Optional[uuid.UUID] = Query(default=None),
     current_user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -201,6 +203,11 @@ def list_executions(
             status_code=422,
             detail="Invalid sort order",
     )
+    if (cursor_created_at is None) != (cursor_id is None):
+        raise HTTPException(
+            status_code=422,
+            detail="Both cursor_created_at and cursor_id must be provided together",
+        )
     if (
         start_date is not None
         and end_date is not None
@@ -241,7 +248,21 @@ def list_executions(
     total = db.execute(
         select(func.count(AIEmployeeExecution.id)).where(*filters)
     ).scalar_one()
-
+    if cursor_created_at is not None and cursor_id is not None:
+        cursor_condition = (
+            tuple_(
+                AIEmployeeExecution.created_at,
+                AIEmployeeExecution.id,
+            )
+            < tuple_(cursor_created_at, cursor_id)
+            if sort_order == "newest"
+            else tuple_(
+                AIEmployeeExecution.created_at,
+                AIEmployeeExecution.id,
+            )
+            > tuple_(cursor_created_at, cursor_id)
+        )
+        filters.append(cursor_condition)
     query = (
         select(AIEmployeeExecution)
         .where(*filters)
@@ -253,19 +274,39 @@ def list_executions(
             if sort_order == "oldest"
             else AIEmployeeExecution.id.desc(),
         )
-        .offset((page - 1) * limit)
-        .limit(limit)
     )
+    if cursor_created_at is None:
+        query = query.offset((page - 1) * limit)
+
+    query = query.limit(limit + 1)
 
     executions = db.execute(query).scalars().all()
 
+    has_next_cursor = len(executions) > limit
+
+    if has_next_cursor:
+        executions = executions[:limit]
+    next_cursor = None
+
+    if has_next_cursor and executions:
+        last_execution = executions[-1]
+        next_cursor = {
+            "created_at": last_execution.created_at.isoformat(),
+            "id": str(last_execution.id),
+        }
     return {
         "total": total,
         "page": page,
         "limit": limit,
         "total_pages": (total + limit - 1) // limit,
-        "has_next": page < (total + limit - 1) // limit,
+        "has_next": (
+            has_next_cursor
+            if cursor_created_at is not None
+            else page < (total + limit - 1) // limit
+        ),
         "has_previous": page > 1,
+        "next_cursor": next_cursor,
+        "has_next_cursor": has_next_cursor,
         "executions": [
             serialize_execution(execution)
             for execution in executions

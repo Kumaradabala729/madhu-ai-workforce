@@ -951,3 +951,118 @@ def test_list_executions_supports_combined_filters():
         assert "created_at" in query_text
     finally:
         teardown()
+def test_list_executions_rejects_incomplete_cursor():
+    setup_admin()
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={
+                "cursor_created_at": "2026-11-08T01:23:23+05:30",
+            },
+        )
+
+        assert response.status_code == 422
+        assert "Both cursor_created_at and cursor_id" in str(response.json())
+    finally:
+        teardown()
+def test_list_executions_returns_next_cursor():
+    from datetime import datetime, timezone
+
+    mock_db = MagicMock()
+
+    first_execution = make_execution()
+    first_execution.created_at = datetime(
+        2026, 11, 12, 10, 0, 0, tzinfo=timezone.utc
+    )
+
+    second_execution = make_execution()
+    second_execution.id = UUID("af949e13-695e-4122-9ed1-373769655de6")
+    second_execution.created_at = datetime(
+        2026, 11, 12, 9, 0, 0, tzinfo=timezone.utc
+    )
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 10
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [
+        first_execution,
+        second_execution,
+    ]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={"limit": 1},
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["has_next_cursor"] is True
+        assert data["next_cursor"] is not None
+        assert data["next_cursor"]["id"] == str(first_execution.id)
+        assert len(data["executions"]) == 1
+    finally:
+        teardown()
+def test_list_executions_uses_cursor_for_next_page():
+    from datetime import datetime, timezone
+
+    mock_db = MagicMock()
+
+    next_execution = make_execution()
+    next_execution.id = UUID("af949e13-695e-4122-9ed1-373769655de6")
+    next_execution.created_at = datetime(
+        2026, 11, 12, 9, 0, 0, tzinfo=timezone.utc
+    )
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 10
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [
+        next_execution
+    ]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={
+                "limit": 1,
+                "cursor_created_at": "2026-11-12T10:00:00+00:00",
+                "cursor_id": EXECUTION_ID,
+            },
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["executions"]) == 1
+        assert data["executions"][0]["id"] == str(next_execution.id)
+        assert data["has_next_cursor"] is False
+        assert data["next_cursor"] is None
+    finally:
+        teardown()
