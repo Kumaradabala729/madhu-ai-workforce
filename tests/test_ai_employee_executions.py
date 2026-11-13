@@ -1060,9 +1060,207 @@ def test_list_executions_uses_cursor_for_next_page():
         assert response.status_code == 200
 
         data = response.json()
+        assert data["total"] == 10
+        assert data["page"] == 1
+        assert data["limit"] == 1
+        assert data["total_pages"] == 10
+        assert data["has_next"] is False
+        assert data["has_previous"] is False
         assert len(data["executions"]) == 1
         assert data["executions"][0]["id"] == str(next_execution.id)
         assert data["has_next_cursor"] is False
         assert data["next_cursor"] is None
+    finally:
+        teardown()
+def test_list_executions_uses_cursor_with_oldest_sorting():
+    from datetime import datetime, timezone
+
+    mock_db = MagicMock()
+
+    next_execution = make_execution()
+    next_execution.id = UUID("af949e13-695e-4122-9ed1-373769655de6")
+    next_execution.created_at = datetime(
+        2026, 11, 12, 10, 0, 0, tzinfo=timezone.utc
+    )
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 10
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [
+        next_execution
+    ]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={
+                "limit": 1,
+                "sort_order": "oldest",
+                "cursor_created_at": "2026-11-12T09:00:00+00:00",
+                "cursor_id": EXECUTION_ID,
+            },
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["executions"]) == 1
+        assert data["executions"][0]["id"] == str(next_execution.id)
+        assert data["has_next_cursor"] is False
+        assert data["next_cursor"] is None
+    finally:
+        teardown()
+def test_list_executions_handles_identical_timestamps():
+    from datetime import datetime, timezone
+
+    mock_db = MagicMock()
+
+    timestamp = datetime(
+        2026, 11, 12, 10, 0, 0, tzinfo=timezone.utc
+    )
+
+    next_execution = make_execution()
+    next_execution.id = UUID(
+        "00000000-0000-0000-0000-000000000009"
+    )
+    next_execution.created_at = timestamp
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 10
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [
+        next_execution
+    ]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={
+                "limit": 1,
+                "sort_order": "newest",
+                "cursor_created_at": timestamp.isoformat(),
+                "cursor_id": "00000000-0000-0000-0000-000000000010",
+            },
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["executions"]) == 1
+        assert data["executions"][0]["id"] == str(next_execution.id)
+
+    finally:
+        teardown()
+def test_list_executions_rejects_invalid_cursor_id():
+    mock_db = MagicMock()
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={
+                "cursor_created_at": "2026-11-12T10:00:00+00:00",
+                "cursor_id": "invalid-uuid",
+            },
+        )
+
+        assert response.status_code == 422
+
+    finally:
+        teardown()
+def test_list_executions_rejects_invalid_cursor_timestamp():
+    mock_db = MagicMock()
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={
+                "cursor_created_at": "not-a-valid-date",
+                "cursor_id": EXECUTION_ID,
+            },
+        )
+
+        assert response.status_code == 422
+
+    finally:
+        teardown()
+def test_list_executions_combines_status_search_and_cursor():
+    from datetime import datetime, timezone
+
+    mock_db = MagicMock()
+
+    next_execution = make_execution()
+    next_execution.id = UUID(
+        "00000000-0000-0000-0000-000000000009"
+    )
+    next_execution.created_at = datetime(
+        2026, 11, 12, 10, 0, 0, tzinfo=timezone.utc
+    )
+    next_execution.status = "completed"
+    next_execution.task = "Follow up with customer"
+
+    employee_result = MagicMock()
+    employee_result.scalar_one_or_none.return_value = make_employee()
+
+    count_result = MagicMock()
+    count_result.scalar_one.return_value = 5
+
+    execution_result = MagicMock()
+    execution_result.scalars.return_value.all.return_value = [
+        next_execution
+    ]
+
+    mock_db.execute.side_effect = [
+        employee_result,
+        count_result,
+        execution_result,
+    ]
+
+    setup_admin(mock_db)
+
+    try:
+        response = client.get(
+            f"/api/organizations/{ORG_ID}/ai-employees/{EMPLOYEE_ID}/executions",
+            params={
+                "status": "completed",
+                "search": "customer",
+                "limit": 1,
+                "cursor_created_at": "2026-11-12T10:00:00+00:00",
+                "cursor_id": "00000000-0000-0000-0000-000000000010",
+            },
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["executions"]) == 1
+        assert data["executions"][0]["status"] == "completed"
+        assert data["executions"][0]["task"] == "Follow up with customer"
+
     finally:
         teardown()
